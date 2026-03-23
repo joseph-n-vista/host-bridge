@@ -2,6 +2,8 @@
 
 Cloud WebSocket relay server that connects local MSFS Bridge clients to web dashboards.
 
+This repo also contains **`chart-worker/`** — a separate Node + GDAL service that builds FAA chart tiles and uploads them to Supabase Storage. Deploy it as a **second Railway service** from the same repo with root directory **`chart-worker`** (see `chart-worker/README.md`).
+
 ## What This Does
 
 This server acts as a relay between:
