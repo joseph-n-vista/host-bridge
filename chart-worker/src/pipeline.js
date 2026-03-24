@@ -69,6 +69,7 @@ export async function buildAndUploadChart(opts) {
   const zipPath = path.join(base, "source.zip");
   const extractDir = path.join(base, "extract");
   const warpedPath = path.join(base, "warped_3857.tif");
+  const rgbaVrtPath = path.join(base, "warped_rgba.vrt");
   const tilesDir = path.join(base, "tiles_out");
 
   const zipUrl = `https://aeronav.faa.gov/visual/${cycleKey}/${faaSubfolder}/${zipFileName}`;
@@ -92,16 +93,13 @@ export async function buildAndUploadChart(opts) {
   const inputTif = tiffs[0];
   console.log(`[${slug}] Using raster: ${inputTif}`);
 
-  // FAA charts are often paletted; gdal2tiles requires RGB/RGBA.
-  console.log(`[${slug}] gdalwarp → EPSG:3857 (expand rgba)`);
+  console.log(`[${slug}] gdalwarp → EPSG:3857`);
   run("gdalwarp", [
     "-overwrite",
     "-t_srs",
     "EPSG:3857",
     "-r",
     "bilinear",
-    "-expand",
-    "rgba",
     "-co",
     "TILED=YES",
     "-co",
@@ -109,6 +107,10 @@ export async function buildAndUploadChart(opts) {
     inputTif,
     warpedPath,
   ]);
+
+  // FAA charts are often paletted; gdal2tiles requires RGB/RGBA (gdal_translate, not gdalwarp -expand).
+  console.log(`[${slug}] gdal_translate → RGBA VRT`);
+  run("gdal_translate", ["-of", "VRT", "-expand", "rgba", warpedPath, rgbaVrtPath]);
 
   if (fs.existsSync(tilesDir)) {
     fs.rmSync(tilesDir, { recursive: true, force: true });
@@ -128,7 +130,7 @@ export async function buildAndUploadChart(opts) {
       "2",
       "--webviewer",
       "none",
-      warpedPath,
+      rgbaVrtPath,
       tilesDir,
     ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
