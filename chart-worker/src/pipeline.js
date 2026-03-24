@@ -92,13 +92,16 @@ export async function buildAndUploadChart(opts) {
   const inputTif = tiffs[0];
   console.log(`[${slug}] Using raster: ${inputTif}`);
 
-  console.log(`[${slug}] gdalwarp → EPSG:3857`);
+  // FAA charts are often paletted; gdal2tiles requires RGB/RGBA.
+  console.log(`[${slug}] gdalwarp → EPSG:3857 (expand rgba)`);
   run("gdalwarp", [
     "-overwrite",
     "-t_srs",
     "EPSG:3857",
     "-r",
     "bilinear",
+    "-expand",
+    "rgba",
     "-co",
     "TILED=YES",
     "-co",
