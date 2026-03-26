@@ -15,6 +15,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY src ./src
+# Optional neat-line crops: mount shapefiles and set CHART_CUTLINES_DIR at runtime (see repo cutlines/README.md).
+# Not bundled—closed-source apps should use your own geometry or licensed data.
 
 ENV NODE_ENV=production
 EXPOSE 8080

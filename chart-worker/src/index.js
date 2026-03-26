@@ -105,17 +105,27 @@ app.post("/build", async (req, res) => {
     fs.mkdirSync(WORK_ROOT, { recursive: true });
     const results = [];
     for (const job of jobs) {
-      const { category, chartId, zipFileName, faaSubfolder } = job;
-      if (!category || !chartId || !zipFileName || !faaSubfolder) {
+      const { category, chartId, zipFileName, faaSubfolder, rasterPathInBucket, rasterUrl } = job;
+      if (!category || !chartId) {
         throw new Error(`Invalid job: ${JSON.stringify(job)}`);
+      }
+      const hasCustom =
+        (rasterPathInBucket && String(rasterPathInBucket).trim()) ||
+        (rasterUrl && String(rasterUrl).trim());
+      if (!hasCustom && (!zipFileName || !faaSubfolder)) {
+        throw new Error(
+          `Invalid job (need zipFileName+faaSubfolder or rasterPathInBucket or rasterUrl): ${JSON.stringify(job)}`
+        );
       }
       const storagePrefix = `visual/${cycleKey}/${category}/${chartId}/tiles`;
       const r = await buildAndUploadChart({
         cycleKey,
         category,
         chartId,
-        zipFileName,
-        faaSubfolder,
+        zipFileName: zipFileName || "",
+        faaSubfolder: faaSubfolder || "",
+        rasterPathInBucket: rasterPathInBucket ? String(rasterPathInBucket).trim() : "",
+        rasterUrl: rasterUrl ? String(rasterUrl).trim() : "",
         bucket: STORAGE_BUCKET,
         storagePrefix,
         minZoom: MIN_ZOOM,

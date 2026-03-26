@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
-import { createClient } from "@supabase/supabase-js";
 import AdmZip from "adm-zip";
 
 function run(cmd, args, opts = {}) {
@@ -42,6 +41,8 @@ function findGeoTiffs(rootDir) {
  * @param {"sectional-files"|"tac-files"} opts.faaSubfolder
  * @param {string} opts.bucket - Supabase bucket
  * @param {string} opts.storagePrefix - e.g. visual/03-19-2026/vfrSectional/Seattle/tiles
+ * @param {string} [opts.rasterPathInBucket] - object path in same `bucket` (trimmed GeoTIFF). Skips FAA ZIP.
+ * @param {string} [opts.rasterUrl] - https URL to GeoTIFF (e.g. signed Storage URL). Skips FAA ZIP.
  * @param {number} opts.minZoom
  * @param {number} opts.maxZoom
  * @param {import('@supabase/supabase-js').SupabaseClient} opts.supabase
@@ -60,6 +61,8 @@ export async function buildAndUploadChart(opts) {
     maxZoom,
     supabase,
     workRoot,
+    rasterPathInBucket,
+    rasterUrl,
   } = opts;
 
   const slug = `${category}__${chartId}`.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -68,30 +71,62 @@ export async function buildAndUploadChart(opts) {
 
   const zipPath = path.join(base, "source.zip");
   const extractDir = path.join(base, "extract");
+  const localRasterPath = path.join(base, "source.tif");
   const warpedPath = path.join(base, "warped_3857.tif");
   const rgbaVrtPath = path.join(base, "warped_rgba.vrt");
   const tilesDir = path.join(base, "tiles_out");
 
-  const zipUrl = `https://aeronav.faa.gov/visual/${cycleKey}/${faaSubfolder}/${zipFileName}`;
-  console.log(`[${slug}] Download ${zipUrl}`);
+  let inputTif;
 
-  const res = await fetch(zipUrl);
-  if (!res.ok) {
-    throw new Error(`FAA download failed ${res.status}: ${zipUrl}`);
+  const trimmedPath = (rasterPathInBucket || "").trim();
+  const trimmedUrl = (rasterUrl || "").trim();
+
+  if (trimmedPath && trimmedUrl) {
+    throw new Error("Use only one of rasterPathInBucket or rasterUrl");
   }
-  const buf = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(zipPath, buf);
 
-  fs.mkdirSync(extractDir, { recursive: true });
-  const zip = new AdmZip(zipPath);
-  zip.extractAllTo(extractDir, true);
+  if (trimmedPath) {
+    console.log(`[${slug}] Download raster from Storage ${bucket}/${trimmedPath}`);
+    const { data, error } = await supabase.storage.from(bucket).download(trimmedPath);
+    if (error) {
+      throw new Error(`Storage download failed ${trimmedPath}: ${error.message}`);
+    }
+    const ab = await data.arrayBuffer();
+    fs.writeFileSync(localRasterPath, Buffer.from(ab));
+    inputTif = localRasterPath;
+    console.log(`[${slug}] Using raster: ${inputTif}`);
+  } else if (trimmedUrl) {
+    console.log(`[${slug}] Download raster from URL (length=${trimmedUrl.length})`);
+    const res = await fetch(trimmedUrl);
+    if (!res.ok) {
+      throw new Error(`rasterUrl download failed ${res.status}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    fs.writeFileSync(localRasterPath, buf);
+    inputTif = localRasterPath;
+    console.log(`[${slug}] Using raster: ${inputTif}`);
+  } else {
+    const zipUrl = `https://aeronav.faa.gov/visual/${cycleKey}/${faaSubfolder}/${zipFileName}`;
+    console.log(`[${slug}] Download ${zipUrl}`);
 
-  const tiffs = findGeoTiffs(extractDir);
-  if (tiffs.length === 0) {
-    throw new Error(`No GeoTIFF found in ${zipFileName}`);
+    const res = await fetch(zipUrl);
+    if (!res.ok) {
+      throw new Error(`FAA download failed ${res.status}: ${zipUrl}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    fs.writeFileSync(zipPath, buf);
+
+    fs.mkdirSync(extractDir, { recursive: true });
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(extractDir, true);
+
+    const tiffs = findGeoTiffs(extractDir);
+    if (tiffs.length === 0) {
+      throw new Error(`No GeoTIFF found in ${zipFileName}`);
+    }
+    inputTif = tiffs[0];
+    console.log(`[${slug}] Using raster: ${inputTif}`);
   }
-  const inputTif = tiffs[0];
-  console.log(`[${slug}] Using raster: ${inputTif}`);
 
   console.log(`[${slug}] gdalwarp → EPSG:3857`);
   run("gdalwarp", [
